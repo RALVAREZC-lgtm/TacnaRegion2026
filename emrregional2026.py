@@ -14,7 +14,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-# Importación condicional de Folium para prevenir errores si no está instalado
+# Importación condicional para evitar caídas en el despliegue
 try:
     import folium
     from streamlit_folium import st_folium
@@ -116,7 +116,7 @@ st.markdown(
 
 
 # ==============================================================================
-# 2. AUTENTICACIÓN Y CONTROL DE ACCESO BASADO EN ROLES (RBAC)
+# 2. AUTENTICACIÓN Y GESTOR DE PERFILES / PERMISOS GRANULARES (RBAC)
 # ==============================================================================
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode()).hexdigest()
@@ -126,7 +126,7 @@ PERMISOS_SISTEMA = {
     "ver_dashboard": "📊 Dashboard Estadístico",
     "ver_mapas": "🗺️ Geolocalización / Mapas",
     "exportar_reportes": "📥 Exportar Reportes",
-    "gestionar_usuarios": "⚙️ Gestión de Usuarios & Perfiles",
+    "gestionar_usuarios": "⚙️ Gestor de Perfiles & Permisos",
 }
 
 if "db_usuarios" not in st.session_state:
@@ -198,7 +198,7 @@ def login_form():
 
         st.info(
             """
-            **Credenciales de Demostración:**
+            **Credenciales de Acceso:**
             * **Admin:** `admin` / `admin123`
             * **Analista:** `analista` / `analista123`
             * **Operador:** `operador` / `campo123`
@@ -268,7 +268,7 @@ class ClienteReniecOnpeAPI:
 
 
 # ==============================================================================
-# 4. CARGA Y HOMOLOGACIÓN DE DATOS MULTI-FUENTE (INCLUYE TARATA_2 Y OTROS)
+# 4. CARGA Y HOMOLOGACIÓN DE DATOS MULTI-FUENTE
 # ==============================================================================
 COLUMN_MAPPING = {
     "REGION": "NOMDPT",
@@ -283,7 +283,6 @@ COLUMN_MAPPING = {
 
 @st.cache_data
 def cargar_padron_unificado() -> pd.DataFrame:
-    # Lista de fuentes potenciales
     archivos = [
         ("emr2026tacna.xlsx", "TACNA"),
         ("emr2026tarata.xlsx", "TARATA"),
@@ -314,7 +313,6 @@ def cargar_padron_unificado() -> pd.DataFrame:
     else:
         df_concat = pd.DataFrame(columns=["NOMDPT", "NOMPRO", "NOMDIS", "NUMDLE", "APEPAT", "APEMAT", "NOMBRE"])
 
-    # Limpieza e indexación por DNI
     df_concat["DNI"] = df_concat["NUMDLE"].astype(str).str.replace(r"\.0$", "", regex=True).str.zfill(8)
     df_concat.drop_duplicates(subset=["DNI"], keep="first", inplace=True)
 
@@ -439,7 +437,7 @@ class GeneradorReportes:
 
 
 # ==============================================================================
-# 6. NAVEGACIÓN Y MENÚ SEGÚN ROLES / PERMISOS
+# 6. NAVEGACIÓN Y MENÚ DINÁMICO POR PERMISOS
 # ==============================================================================
 user = st.session_state.user_info
 
@@ -462,7 +460,7 @@ if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
 
 
 # ==============================================================================
-# 7. EJECUCIÓN MÓDULOS DE LA APLICACIÓN
+# 7. MÓDULOS DE APLICACIÓN INTEGRADOS
 # ==============================================================================
 st.markdown(
     """
@@ -626,11 +624,11 @@ try:
                 use_container_width=True,
             )
 
-    # MÓDULO 5: GESTIÓN DE USUARIOS Y PERMISOS
-    elif seccion_activa == "⚙️ Gestión de Usuarios & Perfiles":
-        st.subheader("⚙️ Panel de Control de Usuarios, Roles y Permisos Granulares")
+    # MÓDULO 5: GESTOR DE PERFILES & PERMISOS (MOD7_GESTOR INTEGRADO)
+    elif seccion_activa == "⚙️ Gestor de Perfiles & Permisos":
+        st.subheader("⚙️ Gestor de Perfiles, Usuarios y Permisos Granulares")
 
-        tab_list, tab_add = st.tabs(["📋 Usuarios Registrados", "➕ Registrar Nuevo Usuario"])
+        tab_list, tab_add = st.tabs(["📋 Usuarios & Permisos Activos", "➕ Registrar Nuevo Usuario"])
 
         with tab_list:
             users_data = []
@@ -641,15 +639,19 @@ try:
             st.dataframe(pd.DataFrame(users_data), use_container_width=True)
 
             st.divider()
-            st.markdown("#### Editar Usuario y Configurar Permisos")
-            usr_mod = st.selectbox("Seleccionar Usuario", list(st.session_state.db_usuarios.keys()))
+            st.markdown("#### Configuración Granular por Usuario")
+            usr_mod = st.selectbox("Seleccionar Usuario a Editar", list(st.session_state.db_usuarios.keys()))
 
             u_curr = st.session_state.db_usuarios[usr_mod]
             c_p, c_r = st.columns(2)
             with c_p:
                 pass_mod = st.text_input("Nueva Contraseña (dejar en blanco para mantener)", type="password")
             with c_r:
-                rol_mod = st.selectbox("Rol Principal", ["Administrador", "Analista", "Operador"], index=["Administrador", "Analista", "Operador"].index(u_curr["rol"]))
+                rol_mod = st.selectbox(
+                    "Rol Principal",
+                    ["Administrador", "Analista", "Operador"],
+                    index=["Administrador", "Analista", "Operador"].index(u_curr["rol"]) if u_curr["rol"] in ["Administrador", "Analista", "Operador"] else 0
+                )
 
             st.write("**Permisos Granulares:**")
             permisos_sel = []
@@ -660,12 +662,12 @@ try:
                 if col.checkbox(f"{desc} (`{clave}`)", value=default_val, key=f"perm_{usr_mod}_{clave}"):
                     permisos_sel.append(clave)
 
-            if st.button("Guardar Cambios de Usuario", use_container_width=True):
+            if st.button("Guardar Configuración de Usuario", use_container_width=True):
                 if pass_mod.strip():
                     st.session_state.db_usuarios[usr_mod]["password_hash"] = hash_password(pass_mod.strip())
                 st.session_state.db_usuarios[usr_mod]["rol"] = rol_mod
                 st.session_state.db_usuarios[usr_mod]["permisos"] = permisos_sel
-                st.success(f"Usuario '{usr_mod}' actualizado correctamente.")
+                st.success(f"Permisos del usuario '{usr_mod}' actualizados correctamente.")
                 time.sleep(0.5)
                 st.rerun()
 
@@ -676,7 +678,7 @@ try:
                 p_new = st.text_input("Contraseña", type="password")
                 r_new = st.selectbox("Rol Principal", ["Administrador", "Analista", "Operador"])
 
-                st.write("**Asignar Permisos:**")
+                st.write("**Asignar Permisos Iniciales:**")
                 perm_nuevos = []
                 for clave, desc in PERMISOS_SISTEMA.items():
                     if st.checkbox(desc, value=True if r_new == "Administrador" else False, key=f"new_{clave}"):
@@ -691,7 +693,7 @@ try:
                             "rol": r_new,
                             "permisos": perm_nuevos,
                         }
-                        st.success(f"Usuario {u_clean} creado exitosamente.")
+                        st.success(f"Usuario {u_clean} creado exitosamente con sus respectivos permisos.")
                         time.sleep(0.5)
                         st.rerun()
                     elif u_clean in st.session_state.db_usuarios:
